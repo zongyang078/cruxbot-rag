@@ -1,0 +1,60 @@
+# ---- Data & indexes (NEVER commit; ship via Release / HF Datasets) ----
+data/*
+!data/.gitkeep
+!data/samples/
+*.sqlite3
+*.sqlite
+*.db
+*.pkl
+*.pickle
+*.bin
+*.gguf
+*.zip
+*.tar.gz
+*.parquet
+
+# Large intermediate artifacts
+**/chroma/
+**/chunks/
+**/unified/
+**/raw/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Envs
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# ---- Notebooks ----
+.ipynb_checkpoints/

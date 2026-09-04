@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cruxbot"
+version = "0.1.0"
+description = "A hybrid-retrieval RAG system over 338k rock climbing documents, with a measurable retrieval evaluation harness."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Zongyang Li", email = "li.zongyang@northeastern.edu" }]
+
+# The pure core (grades, intent, fusion, urls, prompts) has zero runtime
+# dependencies, so CI can run its full test suite in seconds without pulling
+# torch. Everything heavy is an optional extra, declared only once code in this
+# repo actually imports it.
+dependencies = []
+
+[project.optional-dependencies]
+# Retrieval stack: embeddings, vector store, sparse index, reranker.
+rag = [
+    "sentence-transformers>=3.0",
+    "chromadb>=0.5",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.26",
+]
+# Serving layer.
+serve = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.29",
+    "streamlit>=1.36",
+    "httpx>=0.27",
+]
+# Data collection + cleaning pipeline.
+ingest = [
+    "requests>=2.31",
+    "pandas>=2.2",
+    "langchain-text-splitters>=0.2",
+    "tqdm>=4.66",
+]
+# Evaluation harness. Judge-model and plotting deps are added in the commit
+# that introduces the code importing them, not ahead of it.
+eval = [
+    "python-dotenv>=1.0",
+]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: requires a built index or a running LLM backend (deselect with -m 'not integration')",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
