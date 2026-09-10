@@ -4,10 +4,10 @@ Hybrid-retrieval RAG over 338,433 rock climbing documents — routes, forum
 threads, accident reports, and gear reviews — with a retrieval evaluation
 harness that measures the retriever separately from the generator.
 
-> **Status: in progress.** Two-stage retrieval, the indexing pipeline, the test
-> suite (253 tests), and CI are in place. The labelled retrieval benchmark and
-> the hosted demo are not yet built. This README documents what exists; sections
-> marked *(planned)* do not.
+> **Status: in progress.** Two-stage retrieval, the indexing pipeline, the
+> labelled retrieval benchmark, and 350 tests under CI are all in place. The
+> remaining gaps are a hosted demo and answer-quality evaluation. This README
+> documents what exists; sections marked *(planned)* do not.
 
 ---
 
@@ -20,7 +20,10 @@ model — so "we added hybrid search and it got better" is unfalsifiable.
 This project takes the opposite position:
 
 - **The retriever is measured on its own** — Recall@k, MRR, nDCG@k against a
-  labelled query set, with each ablation changing exactly one variable. *(planned)*
+  pooled, judged query set, with each ablation changing exactly one variable.
+  That measurement has already overturned one inherited assumption: query intent
+  detection, which the predecessor counted as an improvement, costs 79% more p95
+  latency and buys no measurable quality. See [Evaluation](#evaluation).
 - **Metrics are named for what they measure.** The predecessor project reported
   a "90% pass rate" that, read closely, only checked whether an answer avoided a
   refusal phrase. It measured false-refusal rate, which is a real and useful
@@ -54,10 +57,12 @@ Stage 2 — precision over ~50            cross-encoder rerank ─► top 5
 ### Design notes
 
 **Why the core has no dependencies.** `grades`, `intent`, `fusion`, `urls`,
-`prompts`, and the BM25 index import nothing outside the standard library. The
-embedding model and vector store are injected behind Protocols, so hybrid
-retrieval is tested against in-memory doubles. The whole suite runs in under a
-second without installing `torch` — which is why CI can run on every push.
+`prompts`, `chunking`, the BM25 index, and the ranking metrics import nothing
+outside the standard library. The embedding model, vector store, reranker, and
+relevance judge are all injected behind Protocols, so retrieval and evaluation
+are tested against in-memory doubles. CI installs no `torch` and makes no
+network calls; the whole suite runs in well under a second, which is why it can
+run on every push.
 
 **Why a hand-written BM25 instead of `rank_bm25`.** `rank_bm25.get_scores`
 scores every document in the corpus on every query: at 382k documents that is
@@ -144,7 +149,7 @@ src/cruxbot/
     ├── rerank.py       # cross-encoder second stage
     └── hybrid.py       # intent routing, fusion, hydration, rerank
 scripts/build_index.py  # CLI: full and incremental index builds
-tests/                  # 253 tests; no torch, no network
+tests/                  # 350 tests; no torch, no network
 ```
 
 ---
@@ -178,24 +183,68 @@ excluded by default.
 
 ---
 
-## Evaluation *(planned)*
+## Evaluation
 
-The harness will report, per retrieval configuration:
+Retrieval is scored against 40 climbing queries whose candidate pools were
+built by **pooling** — every configuration below contributes its top 10, the
+union is graded 0–3 by Claude Opus 5, and anything unjudged counts as
+irrelevant. Pooling is what makes the comparison fair: labelling from one
+configuration's output would guarantee that configuration wins. 38 of the 40
+queries have at least one passage graded 2 or higher and are scored; the other
+two found nothing relevant in the corpus at all.
 
-| Configuration                    | Recall@50 | Recall@10 | nDCG@10 | p50 latency |
-| -------------------------------- | --------- | --------- | ------- | ----------- |
-| dense only (bge-small)           |           |           |         |             |
-| BM25 only                        |           |           |         |             |
-| hybrid (RRF)                     |           |           |         |             |
-| hybrid + cross-encoder rerank    |           |           |         |             |
-| dense only (bge-base)            |           |           |         |             |
+Each row differs from the one above it in exactly one variable.
 
-Recall@50 is reported separately because it measures the first stage on its own
-terms: whether the right chunk reached the pool the reranker sees.
+| configuration        | Recall@50 | Recall@10 | nDCG@10   | MRR       | p50 ms | p95 ms |
+| -------------------- | --------- | --------- | --------- | --------- | ------ | ------ |
+| dense                | 0.693     | 0.420     | 0.527     | 0.603     | 57     | 107    |
+| sparse               | 0.473     | 0.267     | 0.369     | 0.402     | 110    | 211    |
+| hybrid               | **0.950** | 0.443     | 0.563     | 0.623     | 139    | 228    |
+| hybrid+intent        | 0.920     | 0.446     | 0.559     | 0.590     | 321    | 1850   |
+| **hybrid+rerank**    | **0.950** | 0.646     | **0.667** | 0.757     | 1279   | 1929   |
+| hybrid+intent+rerank | 0.920     | **0.647** | 0.665     | **0.776** | 1319   | 3462   |
 
-Answer quality is scored separately by an LLM judge on relevance, groundedness,
-citation quality, and completeness — reported alongside, never merged into, the
-retrieval numbers.
+Recall@50 is reported because it measures the first stage on its own terms:
+whether the right passage reached the pool the cross-encoder sees. Recall,
+Precision and MRR count a passage as relevant at grade ≥ 2 ("useful but
+partial"); grade 1 is "on topic but does not address the question", which is
+not something a retriever should be credited for finding. nDCG stays graded.
+
+**What the table says.**
+
+*Hybrid retrieval works, and it works on recall.* Recall@50 rises from 0.693 to
+0.950 — but Recall@10 barely moves, 0.420 to 0.443. Combining BM25 with dense
+retrieval pulls far more relevant passages into the candidate pool without
+ranking them any better. That is the argument for a second stage, stated as a
+measurement rather than an intuition.
+
+*The cross-encoder delivers what the first stage could not.* Adding it to
+`hybrid` lifts Recall@10 by 46%, nDCG@10 by 18%, and MRR by 22%, at roughly a
+second of added latency. The two-stage split — recall over 384k, precision over
+50 — is doing exactly what it is supposed to.
+
+*Query intent detection does not earn its place.* Comparing the last two rows:
+no measurable quality difference (nDCG differs by 0.002, MRR by 0.019 — noise
+at 38 queries), a lower Recall@50, and a p95 latency 79% higher. The extra
+1.5 seconds buys nothing. Most of that cost is ChromaDB's metadata filter,
+which does not use the HNSW index. The predecessor project counted intent
+detection among the changes that improved its results; under an attributable
+measurement it is a regression, and it is being removed.
+
+**Limitations.** 38 scored queries is small — differences under roughly 0.05
+should not be read as real, which is why the intent comparison above is stated
+as "no measurable difference" rather than a winner. The labels are machine
+graded; agreement against human grades is measurable with
+`evaluation.judge.agreement` but has not yet been run. Pooling penalises any
+configuration added after judging, so the table cannot be extended without
+rebuilding the pool.
+
+Reproduce with:
+
+```bash
+python scripts/build_eval_set.py     # pool + judge  (~8 min, ~$2 of API)
+python scripts/evaluate_retrieval.py # score every configuration
+```
 
 ---
 

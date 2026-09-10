@@ -1,0 +1,40 @@
+{"query_id": "R01", "query": "Recommend a 5.10 sport climbing route in California", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R02", "query": "What are some good beginner trad routes in Red River Gorge?", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R03", "query": "Best bouldering problems around V4 in Bishop California", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R04", "query": "Recommend a multi-pitch route in Yosemite for intermediate climbers", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R05", "query": "What are some classic 5.12 routes in Smith Rock Oregon?", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R06", "query": "Find me a 5.8 sport route in Joshua Tree", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R07", "query": "What are popular ice climbing routes in Colorado?", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R08", "query": "Suggest a beginner-friendly climbing route in Utah", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R09", "query": "What is the hardest sport route in El Potrero Chico?", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "R10", "query": "Recommend a V0-V2 bouldering area near San Francisco", "category": "route", "relevance": {}, "pooled_from": []}
+{"query_id": "T01", "query": "How should I train finger strength for climbing?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T02", "query": "What is the best hangboard routine for intermediate climbers?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T03", "query": "How do I improve my footwork on overhangs?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T04", "query": "Tips for climbing slab routes?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T05", "query": "How to prevent climbing injuries in fingers and elbows?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T06", "query": "What is a good weekly training schedule for V5 bouldering?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T07", "query": "How do I build endurance for long multi-pitch routes?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T08", "query": "What stretches help with hip flexibility for climbing?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T09", "query": "How to overcome a climbing plateau at 5.11?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "T10", "query": "Should I campus board as a beginner?", "category": "training", "relevance": {}, "pooled_from": []}
+{"query_id": "S01", "query": "What are the most common lead climbing accidents?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S02", "query": "How do I safely clean a sport climbing anchor?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S03", "query": "What causes rappelling accidents in climbing?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S04", "query": "How to avoid rockfall injuries while climbing outdoors?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S05", "query": "What happened in climbing accidents at Red River Gorge?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S06", "query": "How to tie a safe figure-eight knot?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S07", "query": "What are common belaying mistakes that lead to accidents?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S08", "query": "Fatal climbing accidents caused by equipment failure", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S09", "query": "How dangerous is free soloing?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "S10", "query": "What should I do if my climbing partner falls and is injured?", "category": "safety", "relevance": {}, "pooled_from": []}
+{"query_id": "G01", "query": "What is the best belay device for multi-pitch climbing?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G02", "query": "La Sportiva vs Scarpa climbing shoes comparison", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G03", "query": "What climbing rope should I buy for sport climbing?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G04", "query": "Best harness for beginners?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G05", "query": "Review of Black Diamond ATC Guide belay device", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G06", "query": "What helmet should I use for outdoor climbing?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G07", "query": "Best chalk bag for bouldering?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G08", "query": "How to choose quickdraws for sport climbing?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G09", "query": "What crash pad should I buy for outdoor bouldering?", "category": "gear", "relevance": {}, "pooled_from": []}
+{"query_id": "G10", "query": "Are assisted braking belay devices safer than tube style?", "category": "gear", "relevance": {}, "pooled_from": []}

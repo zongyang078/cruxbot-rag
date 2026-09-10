@@ -39,9 +39,10 @@ ingest = [
     "langchain-text-splitters>=0.2",
     "tqdm>=4.66",
 ]
-# Evaluation harness. Judge-model and plotting deps are added in the commit
-# that introduces the code importing them, not ahead of it.
+# Evaluation harness: the relevance judge and its schema validation.
 eval = [
+    "anthropic>=0.70",
+    "pydantic>=2.7",
     "python-dotenv>=1.0",
 ]
 dev = [

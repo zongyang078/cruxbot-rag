@@ -27,10 +27,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      # The core package declares no runtime dependencies, so this installs
-      # pytest and ruff and nothing else. Full suite runs in seconds.
+      # No torch, no chromadb: the retrieval and indexing modules are tested
+      # through Protocols with in-memory doubles. The eval extra is light
+      # (anthropic, pydantic, dotenv) and the judge tests need its schema.
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,eval]"
 
       - name: Lint
         run: ruff check src tests
