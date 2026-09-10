@@ -65,10 +65,16 @@ class FakeLLM:
 
     name = "fake-llm"
 
-    def __init__(self, response: str = "an answer") -> None:
+    def __init__(self, response: str = "an answer", reachable: bool = True) -> None:
         self.response = response
         self.prompts: list[str] = []
         self.stream_calls = 0
+        # Configured-but-unreachable is a distinct state from not configured,
+        # and the one a health check exists to catch.
+        self.reachable = reachable
+
+    def available(self, timeout: float = 2.0) -> bool:
+        return self.reachable
 
     def complete(self, prompt: str, *, timeout: float = 120.0) -> str:
         self.prompts.append(prompt)

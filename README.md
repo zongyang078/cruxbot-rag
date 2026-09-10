@@ -1,5 +1,7 @@
 # CruxBot
 
+![CruxBot answering a climbing question](docs/demo.gif)
+
 Hybrid-retrieval RAG over 338,433 rock climbing documents — routes, forum
 threads, accident reports, and gear reviews — with a retrieval evaluation
 harness that measures the retriever separately from the generator.
@@ -112,10 +114,15 @@ smaller index. Whether the reranker actually absorbs the quality difference is a
 question for the benchmark, not for taste — the comparison is one row of the
 table below.
 
-**Why an LLM provider Protocol.** A self-hosted Llama 3 is right for privacy
-and zero marginal query cost; a hosted API is right for a public demo that must
-not require a GPU. Both sit behind [`LLMProvider`](src/cruxbot/llm/base.py) so
-evaluation can hold the retriever fixed and swap only the generator.
+**Why two LLM backends.** A self-hosted Llama 3 costs nothing per query and
+sends nothing to a third party, which is right for bulk evaluation and for
+anyone running this locally. A hosted Claude model needs no GPU and no local
+install, which is the only thing that deploys — "the operator has Ollama
+running" is not a deployment story. Both sit behind
+[`LLMProvider`](src/cruxbot/llm/base.py), so evaluation can hold the retriever
+fixed and swap only the generator, and `CRUXBOT_LLM_PROVIDER` chooses at
+startup. A provider that fails to construct does not stop the service: search
+comes up regardless, and `/health` reports why generation is missing.
 
 **What incremental indexing requires.** Chunk ids are derived from document
 ids, so re-indexing a changed document overwrites its chunks instead of
@@ -148,13 +155,49 @@ src/cruxbot/
     ├── dense.py        # Embedder / VectorStore Protocols + Chroma backend
     ├── rerank.py       # cross-encoder second stage
     └── hybrid.py       # intent routing, fusion, hydration, rerank
-scripts/build_index.py  # CLI: full and incremental index builds
+scripts/               # CLI: index builds, eval set, ablation, demo subset
 tests/                  # 350 tests; no torch, no network
 ```
 
 ---
 
-## Development
+## Running it
+
+The full index is 2.5 GB and is not published. A 40,000-chunk subset is — a 10%
+sample that includes every passage the benchmark judged, so the queries in
+`benchmarks/queries.jsonl` return the passages behind the numbers below.
+
+```bash
+scripts/fetch_demo_index.sh   # ~167 MB download, ~300 MB unpacked
+docker compose up             # first start pulls ~500 MB of model weights
+
+python scripts/demo.py "classic 5.11a sport routes in Yosemite"
+```
+
+`scripts/demo.py` needs nothing installed — it is stdlib-only, so it works
+straight after `docker compose up`. It prints the retrieved passages with their
+rerank scores and the per-stage timing, then streams the answer. Pass
+`--search-only` to skip generation.
+
+`/search` needs no model provider and spends no tokens. `/answer` does — either
+a hosted model (`CRUXBOT_LLM_PROVIDER=anthropic docker compose up`, reading
+`ANTHROPIC_API_KEY` from a gitignored `.env`) or a local one
+(`docker compose --profile local-llm up`). Without one, `/answer` returns 503 and says so
+while `/search` keeps working — `/health` probes the provider rather than
+assuming a configured one is reachable.
+
+**On latency in the container.** Retrieval measures p50 1192 ms natively on an
+M4, where the cross-encoder runs on the GPU. Inside Docker it is CPU-only and
+the same rerank takes 5–8 s. The container is for reproducibility, not for
+speed; run the service natively to see the numbers in the benchmark below.
+
+| endpoint | what it does |
+| -------- | ------------ |
+| `POST /search` | Retrieval only. Returns passages, scores, and per-stage timing. |
+| `POST /answer` | Retrieval plus generation, streamed as SSE; sources arrive before the first token. |
+| `GET /health` | Reports retrieval and generation availability separately. |
+
+### Development
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -162,20 +205,23 @@ make install        # core + pytest + ruff, no torch
 make check          # lint + tests
 ```
 
-The full stack (embeddings, vector store, serving) installs separately:
+The full stack installs separately:
 
 ```bash
 make install-all
 ```
 
-Building the index:
+Building the index from the unified corpus:
 
 ```bash
-# full build: 338,433 documents -> 384,315 chunks
+# full build: 338,433 documents -> 384,315 chunks, ~32 min on an M4
 python scripts/build_index.py --corpus data/unified.jsonl
 
 # incremental: same command, a smaller input, no BM25 rebuild
 python scripts/build_index.py --corpus data/incoming/reddit-latest.jsonl --skip-sparse
+
+# the shippable subset, reusing the vectors already computed
+python scripts/build_demo_index.py --size 40000
 ```
 
 Tests that need a built index or a running model are marked `integration` and

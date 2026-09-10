@@ -33,6 +33,15 @@ class LLMProvider(Protocol):
         """Yield completion text incrementally. Used by the UI."""
         ...
 
+    def available(self, timeout: float = 2.0) -> bool:
+        """Whether the backend can actually be reached right now.
+
+        Constructing a provider proves nothing -- it only records a URL and a
+        model name. A health endpoint that reports "generation: true" on that
+        basis is wrong in the one case anybody checks it for.
+        """
+        ...
+
 
 class ProviderError(RuntimeError):
     """Raised when a backend is unreachable or returns an unusable response."""
@@ -52,4 +61,9 @@ def get_provider(name: str | None = None, **kwargs: object) -> LLMProvider:
 
         return OllamaProvider(**kwargs)  # type: ignore[arg-type]
 
-    raise ProviderError(f"Unknown LLM provider {resolved!r}. Available: 'ollama'.")
+    if resolved in {"anthropic", "claude"}:
+        from cruxbot.llm.anthropic import AnthropicProvider
+
+        return AnthropicProvider(**kwargs)  # type: ignore[arg-type]
+
+    raise ProviderError(f"Unknown LLM provider {resolved!r}. Available: 'ollama', 'anthropic'.")

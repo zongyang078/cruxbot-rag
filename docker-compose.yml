@@ -1,0 +1,60 @@
+# Retrieval runs on its own:
+#
+#     scripts/fetch_demo_index.sh
+#     docker compose up
+#     curl -X POST localhost:8080/search -H 'Content-Type: application/json' \
+#          -d '{"query": "classic 5.11a sport routes in Yosemite"}'
+#
+# Generation needs a model, and there are two ways to get one:
+#
+#     CRUXBOT_LLM_PROVIDER=anthropic docker compose up   # hosted, needs a key
+#     docker compose --profile local-llm up              # local, free, slower
+#
+# The hosted path reads ANTHROPIC_API_KEY from .env, which is gitignored.
+
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Retrieval works with no provider reachable; /answer returns 503 and
+      # says so, rather than the whole service failing to start.
+      CRUXBOT_LLM_PROVIDER: ${CRUXBOT_LLM_PROVIDER:-ollama}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: http://ollama:11434/api/generate
+      OLLAMA_MODEL: llama3
+      CRUXBOT_COLLECTION: cruxbot
+    volumes:
+      # The index lives outside the image: 300 MB, and rebuilding the image
+      # should not mean fetching it again.
+      #
+      # Mounted read-write, not `:ro`. ChromaDB opens its SQLite file for
+      # writing even to serve reads -- it needs the write-ahead log -- and a
+      # read-only mount fails at startup with "attempt to write a readonly
+      # database".
+      - ./data/demo:/app/data/demo
+      # Bi-encoder and cross-encoder weights, ~500 MB, downloaded on first
+      # start. Without this volume every container start re-downloads them.
+      - model-cache:/app/.cache/huggingface
+
+  ollama:
+    image: ollama/ollama
+    profiles: ["local-llm"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # GPU is optional. Llama 3 8B runs on CPU, just slowly; uncomment to use
+    # one if the host has it.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  model-cache:
+  ollama-data:

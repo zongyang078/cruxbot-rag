@@ -23,6 +23,7 @@ Requires the serving extra:  pip install -e ".[rag,serve]"
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -33,11 +34,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from cruxbot.config import settings
+from cruxbot.llm.base import ProviderError
 from cruxbot.pipeline import Pipeline, Retrieved
+
+logger = logging.getLogger(__name__)
 
 # Populated at startup. A module-level handle rather than a factory per request
 # because the models behind it are the expensive part.
 _pipeline: Pipeline | None = None
+# Why generation is unavailable, when it is. Reported by /health so that a
+# misconfiguration is distinguishable from a deliberate retrieval-only setup.
+_provider_error: str | None = None
 
 
 def build_pipeline() -> Pipeline:
@@ -57,10 +64,15 @@ def build_pipeline() -> Pipeline:
     if os.getenv("CRUXBOT_DISABLE_LLM", "").lower() not in {"1", "true", "yes"}:
         try:
             provider = get_provider()
-        except Exception:  # noqa: BLE001 - retrieval must still serve
-            # A missing or unreachable provider is not a startup failure. The
-            # search endpoint is the one that has to be up.
-            provider = None
+        except Exception as exc:  # noqa: BLE001 - retrieval must still serve
+            # A missing or misconfigured provider is not a startup failure --
+            # the search endpoint has to come up regardless. But it must be
+            # said out loud: swallowing this silently meant a container built
+            # without the anthropic package reported "no provider configured",
+            # which is indistinguishable from not configuring one.
+            global _provider_error
+            _provider_error = f"{type(exc).__name__}: {exc}"
+            logger.warning("LLM provider unavailable, serving retrieval only: %s", _provider_error)
 
     return Pipeline(
         HybridRetriever(DenseRetriever(embedder, store), bm25, reranker=reranker),
@@ -168,13 +180,23 @@ def _timing(retrieved: Retrieved, generation_ms: float = 0.0) -> Timing:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    """Readiness, and whether generation is available at all."""
+    """Readiness, with generation probed rather than assumed.
+
+    The provider is contacted, not merely checked for existence: a configured
+    but unreachable backend is exactly the state a health check exists to
+    catch, and reporting it as healthy defeats the purpose.
+    """
     ready = _pipeline is not None
-    return {
+    provider = _pipeline.provider if ready else None
+    body: dict[str, Any] = {
         "status": "ok" if ready else "loading",
         "retrieval": ready,
-        "generation": ready and _pipeline.provider is not None,
+        "generation": bool(provider and provider.available()),
+        "provider": provider.name if provider else None,
     }
+    if not body["generation"] and _provider_error:
+        body["generation_error"] = _provider_error
+    return body
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -215,7 +237,12 @@ def answer(request: AnswerRequest):
 
     if not request.stream:
         started = time.perf_counter()
-        text = "".join(tokens)
+        try:
+            text = "".join(tokens)
+        except ProviderError as exc:
+            # Configured but unreachable. A 500 here would read as a bug in
+            # this service rather than a missing dependency.
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         generation_ms = (time.perf_counter() - started) * 1000
         return AnswerResponse(
             query=request.query,
@@ -232,6 +259,10 @@ def answer(request: AnswerRequest):
         try:
             for token in tokens:
                 yield _sse("token", {"text": token})
+        except ProviderError as exc:
+            # The status line is already sent, so this cannot become a 503;
+            # the client learns about it through the event stream instead.
+            yield _sse("error", {"detail": str(exc)})
         except Exception as exc:  # noqa: BLE001 - the client needs to hear about it
             yield _sse("error", {"detail": f"{type(exc).__name__}: {exc}"})
         yield _sse("done", {})

@@ -71,6 +71,14 @@ class TestHealth:
         assert body["retrieval"] is True
         assert body["generation"] is False
 
+    def test_a_configured_but_unreachable_provider_is_not_healthy(self, client) -> None:
+        # Constructing a provider proves nothing: it records a URL. Reporting
+        # generation as available on that basis is wrong in exactly the case
+        # anyone checks health for.
+        body = client(provider=FakeLLM("x", reachable=False)).get("/health").json()
+        assert body["generation"] is False
+        assert body["retrieval"] is True
+
 
 class TestSearch:
     def test_returns_ranked_sources(self, client) -> None:

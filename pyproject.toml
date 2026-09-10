@@ -27,6 +27,10 @@ rag = [
 ]
 # Serving layer.
 serve = [
+    # anthropic is a serving dependency, not only an evaluation one: the hosted
+    # provider is the deployable generation path, and a container built without
+    # it can only ever run the local backend.
+    "anthropic>=0.70",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.29",
     "pydantic>=2.7",

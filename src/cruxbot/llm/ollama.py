@@ -40,6 +40,19 @@ class OllamaProvider:
                 f"Could not reach Ollama at {self.url}: {exc.reason}. Is `ollama serve` running?"
             ) from exc
 
+    def available(self, timeout: float = 2.0) -> bool:
+        """Probe the model list endpoint.
+
+        Cheap and side-effect free, unlike a test generation, which would spend
+        tokens on a paid backend every time something checked health.
+        """
+        base = self.url.split("/api/")[0]
+        try:
+            with urllib.request.urlopen(f"{base}/api/tags", timeout=timeout) as response:
+                return 200 <= response.status < 300
+        except (urllib.error.URLError, OSError, ValueError):
+            return False
+
     def complete(self, prompt: str, *, timeout: float = 120.0) -> str:
         with self._request(prompt, stream=False, timeout=timeout) as response:
             try:
