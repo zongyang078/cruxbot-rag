@@ -23,9 +23,9 @@ from __future__ import annotations
 import math
 import pickle
 import re
+from array import array
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
 # Term frequency saturation. Above k1, additional occurrences of a term in one
@@ -37,7 +37,21 @@ B = 0.75
 # Bump when the tokenizer or index layout changes, so stale caches are rejected
 # rather than silently loaded -- the original implementation had no such guard
 # and would happily load an index built against a different corpus.
-INDEX_VERSION = 1
+INDEX_VERSION = 2
+
+# Terms appearing in more than this fraction of the corpus are dropped at build
+# time. Their IDF is already near zero, so they barely affect ranking, but they
+# own the longest postings lists: in this corpus "a", "in", "is", "the" and
+# "climbing" alone account for millions of postings. Pruning by observed
+# document frequency rather than a hardcoded stopword list keeps the rule
+# corpus-driven -- "climbing" is a stopword here and a keyword elsewhere.
+MAX_DF_RATIO = 0.5
+
+# Document frequency is only meaningful once there are enough documents to
+# estimate it from. Below this, pruning is disabled -- otherwise a ten-document
+# corpus loses every term shared by more than five of them, which is most of
+# the vocabulary that matters.
+MIN_DOCS_FOR_PRUNING = 1000
 
 # Keep alphanumerics, plus internal dots and hyphens so that climbing grades
 # ("5.10a") and hyphenated terms ("multi-pitch") survive tokenization intact.
@@ -49,14 +63,6 @@ def tokenize(text: str) -> list[str]:
     return _TOKEN_RE.findall(text.lower())
 
 
-@dataclass(slots=True)
-class Posting:
-    """One document's occurrence count for one term."""
-
-    doc_index: int
-    term_frequency: int
-
-
 class BM25Index:
     """An inverted index supporting BM25 ranking with optional filtering.
 
@@ -64,13 +70,29 @@ class BM25Index:
     `doc_ids` maps those positions back to the caller's identifiers.
     """
 
-    __slots__ = ("postings", "doc_ids", "doc_lengths", "doc_meta", "avgdl", "n_docs")
+    __slots__ = (
+        "postings",
+        "doc_ids",
+        "doc_lengths",
+        "doc_meta",
+        "by_content_type",
+        "avgdl",
+        "n_docs",
+    )
 
     def __init__(self) -> None:
-        self.postings: dict[str, list[Posting]] = {}
+        # term -> (document positions, term frequencies), as parallel arrays.
+        # Storing these as `array("i")` rather than a list of small objects
+        # matters at this scale: 26M postings as dataclass instances pickle to
+        # 681 MB and take seconds to load, where the same data as packed
+        # integers is a fraction of that and unpickles as raw bytes.
+        self.postings: dict[str, tuple[array, array]] = {}
         self.doc_ids: list[str] = []
-        self.doc_lengths: list[int] = []
+        self.doc_lengths: array = array("i")
         self.doc_meta: list[dict[str, str]] = []
+        # Precomputed at build time. Deriving it per query meant scanning all
+        # 384k documents on every filtered search.
+        self.by_content_type: dict[str, frozenset[int]] = {}
         self.avgdl: float = 0.0
         self.n_docs: int = 0
 
@@ -82,8 +104,13 @@ class BM25Index:
         doc_ids: Sequence[str],
         texts: Sequence[str],
         metadatas: Sequence[dict[str, str]] | None = None,
+        max_df_ratio: float = MAX_DF_RATIO,
     ) -> BM25Index:
-        """Build an index from parallel sequences of ids, texts, and metadata."""
+        """Build an index from parallel sequences of ids, texts, and metadata.
+
+        Terms present in more than `max_df_ratio` of documents are omitted; see
+        MAX_DF_RATIO for why.
+        """
         if len(doc_ids) != len(texts):
             raise ValueError(f"{len(doc_ids)} ids but {len(texts)} texts")
         if metadatas is not None and len(metadatas) != len(doc_ids):
@@ -92,8 +119,9 @@ class BM25Index:
         index = cls()
         index.doc_ids = list(doc_ids)
         index.doc_meta = list(metadatas) if metadatas is not None else [{} for _ in doc_ids]
+        index.n_docs = len(index.doc_ids)
 
-        accumulator: dict[str, list[Posting]] = defaultdict(list)
+        accumulator: dict[str, list[tuple[int, int]]] = defaultdict(list)
         total_length = 0
 
         for position, text in enumerate(texts):
@@ -105,11 +133,28 @@ class BM25Index:
             for token in tokens:
                 counts[token] += 1
             for term, frequency in counts.items():
-                accumulator[term].append(Posting(position, frequency))
+                accumulator[term].append((position, frequency))
 
-        index.postings = dict(accumulator)
-        index.n_docs = len(index.doc_ids)
         index.avgdl = total_length / index.n_docs if index.n_docs else 0.0
+
+        df_cutoff = (
+            index.n_docs * max_df_ratio if index.n_docs >= MIN_DOCS_FOR_PRUNING else float("inf")
+        )
+        index.postings = {
+            term: (
+                array("i", [p for p, _ in entries]),
+                array("i", [f for _, f in entries]),
+            )
+            for term, entries in accumulator.items()
+            if len(entries) <= df_cutoff
+        }
+
+        by_type: dict[str, set[int]] = defaultdict(set)
+        for position, meta in enumerate(index.doc_meta):
+            if content_type := meta.get("content_type"):
+                by_type[content_type].add(position)
+        index.by_content_type = {k: frozenset(v) for k, v in by_type.items()}
+
         return index
 
     # -- querying ----------------------------------------------------------
@@ -121,9 +166,10 @@ class BM25Index:
         half the corpus; the unsmoothed form goes negative there, which would
         let a common term actively penalize a document that contains it.
         """
-        df = len(self.postings.get(term, ()))
-        if df == 0:
+        entry = self.postings.get(term)
+        if entry is None:
             return 0.0
+        df = len(entry[0])
         return math.log(1 + (self.n_docs - df + 0.5) / (df + 0.5))
 
     def score(self, query: str, allowed: set[int] | None = None) -> dict[int, float]:
@@ -141,18 +187,19 @@ class BM25Index:
             sharing no term with the query are absent rather than scored zero.
         """
         scores: dict[int, float] = defaultdict(float)
+        lengths, avgdl = self.doc_lengths, self.avgdl
 
-        for term in tokenize(query):
-            postings = self.postings.get(term)
-            if not postings:
+        for term in set(tokenize(query)):
+            entry = self.postings.get(term)
+            if entry is None:
                 continue
             idf = self._idf(term)
-            for posting in postings:
-                if allowed is not None and posting.doc_index not in allowed:
+            positions, frequencies = entry
+            for position, tf in zip(positions, frequencies, strict=True):
+                if allowed is not None and position not in allowed:
                     continue
-                tf = posting.term_frequency
-                length_norm = 1 - B + B * self.doc_lengths[posting.doc_index] / self.avgdl
-                scores[posting.doc_index] += idf * tf * (K1 + 1) / (tf + K1 * length_norm)
+                length_norm = 1 - B + B * lengths[position] / avgdl
+                scores[position] += idf * tf * (K1 + 1) / (tf + K1 * length_norm)
 
         return dict(scores)
 
@@ -185,12 +232,10 @@ class BM25Index:
     def _positions_for_content_types(self, content_types: Iterable[str] | None) -> set[int] | None:
         if content_types is None:
             return None
-        wanted = set(content_types)
-        return {
-            position
-            for position, meta in enumerate(self.doc_meta)
-            if meta.get("content_type") in wanted
-        }
+        positions: set[int] = set()
+        for content_type in content_types:
+            positions |= self.by_content_type.get(content_type, frozenset())
+        return positions
 
     # -- persistence -------------------------------------------------------
 
@@ -225,9 +270,19 @@ class BM25Index:
                 payload = pickle.load(handle)
             index = payload["index"]
         except Exception:
+            # A pickle written by an older layout may not even be loadable --
+            # it can reference classes that no longer exist. Treat any failure
+            # as a cache miss so the caller rebuilds.
             return None
         if not isinstance(index, cls):
             return None
-        if expect is not None and payload.get("fingerprint") != expect:
+
+        fingerprint = payload.get("fingerprint")
+        # The version is checked unconditionally, not just when the caller
+        # supplies a fingerprint: an index written by a different tokenizer or
+        # layout is wrong regardless of whether the corpus matches.
+        if not isinstance(fingerprint, tuple) or fingerprint[0] != INDEX_VERSION:
+            return None
+        if expect is not None and fingerprint != expect:
             return None
         return index

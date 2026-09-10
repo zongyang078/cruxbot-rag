@@ -25,6 +25,15 @@ class Embedder(Protocol):
 
     def encode(self, text: str) -> Sequence[float]: ...
 
+    def encode_batch(self, texts: Sequence[str]) -> list[Sequence[float]]:
+        """Embed many texts at once.
+
+        Indexing is throughput-bound and batching is where nearly all of the
+        speedup lives, so this is part of the interface rather than a loop over
+        `encode` at the call site.
+        """
+        ...
+
 
 class VectorStore(Protocol):
     """A queryable collection of embedded documents."""
@@ -38,6 +47,20 @@ class VectorStore(Protocol):
         """Return nearest neighbours, best first.
 
         Each result carries at least "chunk_id", "text", "score", "metadata".
+        """
+        ...
+
+    def upsert(
+        self,
+        ids: Sequence[str],
+        texts: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+        metadatas: Sequence[dict[str, str]],
+    ) -> None:
+        """Insert or replace documents by id.
+
+        Upsert rather than add: re-indexing a document that changed must
+        overwrite its chunks, not accumulate a second copy beside them.
         """
         ...
 
@@ -93,19 +116,34 @@ class SentenceTransformerEmbedder:
     def encode(self, text: str) -> Sequence[float]:
         return self._model.encode(text).tolist()
 
+    def encode_batch(self, texts: Sequence[str]) -> list[Sequence[float]]:
+        return self._model.encode(list(texts), batch_size=64).tolist()
+
 
 class ChromaStore:
     """Vector store backed by a persistent ChromaDB collection."""
 
-    def __init__(self, path: str | None = None, collection: str | None = None) -> None:
+    def __init__(
+        self,
+        path: str | None = None,
+        collection: str | None = None,
+        create: bool = False,
+    ) -> None:
         import chromadb
 
         from cruxbot.config import settings
 
         self.path = str(path or settings.chroma_path)
         self.collection_name = collection or settings.collection
-        self._collection = chromadb.PersistentClient(path=self.path).get_collection(
-            self.collection_name
+        client = chromadb.PersistentClient(path=self.path)
+
+        # Indexing creates; serving opens. Defaulting `create` to False means a
+        # typo in the collection name fails loudly at startup instead of
+        # quietly serving an empty index.
+        self._collection = (
+            client.get_or_create_collection(self.collection_name, metadata={"hnsw:space": "cosine"})
+            if create
+            else client.get_collection(self.collection_name)
         )
 
     def count(self) -> int:
@@ -125,6 +163,20 @@ class ChromaStore:
             )
             yield batch["ids"], batch["documents"], batch["metadatas"]
             offset += batch_size
+
+    def upsert(
+        self,
+        ids: Sequence[str],
+        texts: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+        metadatas: Sequence[dict[str, str]],
+    ) -> None:
+        self._collection.upsert(
+            ids=list(ids),
+            documents=list(texts),
+            embeddings=[list(e) for e in embeddings],
+            metadatas=list(metadatas),
+        )
 
     def get(self, chunk_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
         ids = list(chunk_ids)

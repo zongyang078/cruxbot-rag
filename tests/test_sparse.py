@@ -10,7 +10,14 @@ import math
 
 import pytest
 
-from cruxbot.retrieval.sparse import K1, B, BM25Index, tokenize
+from cruxbot.retrieval.sparse import (
+    INDEX_VERSION,
+    K1,
+    MIN_DOCS_FOR_PRUNING,
+    B,
+    BM25Index,
+    tokenize,
+)
 
 
 class TestTokenize:
@@ -55,16 +62,16 @@ def index() -> BM25Index:
 class TestBuild:
     def test_records_corpus_statistics(self, index: BM25Index) -> None:
         assert index.n_docs == 4
-        assert index.doc_lengths == [4, 5, 3, 5]
+        assert list(index.doc_lengths) == [4, 5, 3, 5]
         assert index.avgdl == pytest.approx(17 / 4)
 
     def test_builds_postings_only_for_present_terms(self, index: BM25Index) -> None:
-        assert {p.doc_index for p in index.postings["yosemite"]} == {0, 1}
+        assert set(index.postings["yosemite"][0]) == {0, 1}
         assert "kayaking" not in index.postings
 
     def test_counts_repeated_terms(self) -> None:
         idx = BM25Index.build(["d0"], ["rope rope rope"])
-        assert idx.postings["rope"][0].term_frequency == 3
+        assert idx.postings["rope"][1][0] == 3
 
     def test_rejects_mismatched_input_lengths(self) -> None:
         with pytest.raises(ValueError, match="2 ids but 1 texts"):
@@ -82,6 +89,55 @@ class TestBuild:
         idx = BM25Index.build([], [])
         assert idx.avgdl == 0.0
         assert idx.search("anything") == []
+
+
+class TestHighFrequencyPruning:
+    """Terms in most documents are dropped: near-zero IDF, longest postings."""
+
+    def _corpus(self, n: int, ubiquitous: str, rare_at: int) -> BM25Index:
+        texts = [f"{ubiquitous} filler{i}" for i in range(n)]
+        texts[rare_at] += " yosemite"
+        return BM25Index.build([f"d{i}" for i in range(n)], texts)
+
+    def test_drops_terms_present_in_most_documents(self) -> None:
+        index = self._corpus(MIN_DOCS_FOR_PRUNING, "climbing", rare_at=0)
+        assert "climbing" not in index.postings
+
+    def test_keeps_discriminative_terms(self) -> None:
+        index = self._corpus(MIN_DOCS_FOR_PRUNING, "climbing", rare_at=0)
+        assert "yosemite" in index.postings
+
+    def test_a_query_of_only_pruned_terms_returns_nothing(self) -> None:
+        # Acceptable: those terms could not have discriminated anyway, and the
+        # dense retriever still answers the query.
+        index = self._corpus(MIN_DOCS_FOR_PRUNING, "climbing", rare_at=0)
+        assert index.search("climbing") == []
+
+    def test_disabled_on_small_corpora(self) -> None:
+        # Below the threshold, document frequency is not estimable and pruning
+        # would empty the index.
+        index = BM25Index.build(["a", "b"], ["rope", "rope"])
+        assert "rope" in index.postings
+
+    def test_ratio_is_configurable(self) -> None:
+        n = MIN_DOCS_FOR_PRUNING
+        index = BM25Index.build([f"d{i}" for i in range(n)], ["rope"] * n, max_df_ratio=1.0)
+        assert "rope" in index.postings
+
+
+class TestContentTypeIndex:
+    def test_positions_are_precomputed_at_build_time(self) -> None:
+        # Deriving this per query meant scanning every document on every
+        # filtered search.
+        index = BM25Index.build(
+            ["a", "b"], ["x", "y"], [{"content_type": "route"}, {"content_type": "article"}]
+        )
+        assert index.by_content_type["route"] == frozenset({0})
+        assert index.by_content_type["article"] == frozenset({1})
+
+    def test_documents_without_a_content_type_are_omitted(self) -> None:
+        index = BM25Index.build(["a"], ["x"], [{}])
+        assert index.by_content_type == {}
 
 
 class TestScore:
@@ -194,3 +250,20 @@ class TestPersistence:
     def test_fingerprint_changes_with_corpus_size(self, index: BM25Index) -> None:
         smaller = BM25Index.build(index.doc_ids[:2], ["a", "b"])
         assert smaller.fingerprint() != index.fingerprint()
+
+
+class TestIndexVersioning:
+    def test_an_index_from_an_older_layout_is_rejected(self, index: BM25Index, tmp_path) -> None:
+        # Checked even when the caller supplies no fingerprint: an index built
+        # by a different tokenizer is wrong whatever the corpus was.
+        import pickle
+
+        path = tmp_path / "bm25.pkl"
+        stale = (INDEX_VERSION - 1, index.n_docs, "d0|d3")
+        path.write_bytes(pickle.dumps({"fingerprint": stale, "index": index}))
+        assert BM25Index.load(path) is None
+
+    def test_a_current_index_loads_without_a_fingerprint(self, index: BM25Index, tmp_path) -> None:
+        path = tmp_path / "bm25.pkl"
+        index.save(path)
+        assert BM25Index.load(path) is not None

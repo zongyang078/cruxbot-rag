@@ -21,6 +21,7 @@ from typing import Any
 from cruxbot import fusion
 from cruxbot import intent as intent_module
 from cruxbot.retrieval.dense import DenseRetriever
+from cruxbot.retrieval.rerank import Reranker, rerank
 from cruxbot.retrieval.sparse import BM25Index
 from cruxbot.types import Chunk
 
@@ -40,6 +41,8 @@ class RetrievalResult:
     content_types: list[str] | None = None
     n_dense: int = 0
     n_sparse: int = 0
+    n_reranked: int = 0
+    rerank_ms: float = 0.0
     elapsed_ms: float = 0.0
 
 
@@ -50,13 +53,20 @@ class HybridRetriever:
         self,
         dense: DenseRetriever,
         sparse: BM25Index | None = None,
+        reranker: Reranker | None = None,
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
+        rerank_pool: int = 50,
     ) -> None:
         self.dense = dense
         self.sparse = sparse
+        self.reranker = reranker
         self.dense_weight = dense_weight
         self.sparse_weight = sparse_weight
+        # How many fused candidates the cross-encoder sees. Larger pools raise
+        # recall but cost a forward pass each, so this is the main latency dial
+        # of the second stage.
+        self.rerank_pool = rerank_pool
 
     def retrieve(
         self,
@@ -102,10 +112,22 @@ class HybridRetriever:
         # A content-type filter can starve the result set -- an "article" query
         # against a corpus with few articles returns almost nothing. Backfill
         # from an unfiltered dense pass rather than answering from thin context.
-        if filter_types and len(merged) < top_k:
-            merged = self._backfill(query, merged, top_k, candidate_k)
+        needed = self.rerank_pool if self.reranker else top_k
+        if filter_types and len(merged) < needed:
+            merged = self._backfill(query, merged, needed, candidate_k)
 
-        selected = self._hydrate(merged[:top_k])
+        # Text has to be present before the cross-encoder sees a candidate, so
+        # hydration covers the whole rerank pool rather than just the final
+        # top_k. One batched lookup either way.
+        selected = self._hydrate(merged[:needed])
+
+        rerank_ms = 0.0
+        if self.reranker is not None:
+            rerank_started = time.perf_counter()
+            selected = rerank(self.reranker, query, selected, top_k=top_k)
+            rerank_ms = (time.perf_counter() - rerank_started) * 1000
+        else:
+            selected = selected[:top_k]
 
         return RetrievalResult(
             chunks=[self._to_chunk(hit) for hit in selected],
@@ -113,6 +135,8 @@ class HybridRetriever:
             content_types=filter_types,
             n_dense=len(dense_hits),
             n_sparse=len(sparse_hits),
+            n_reranked=len(merged[:needed]) if self.reranker else 0,
+            rerank_ms=rerank_ms,
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
 
@@ -160,6 +184,6 @@ class HybridRetriever:
             text=str(hit.get("text") or ""),
             chunk_id=str(hit.get("chunk_id", "")),
             source_url=str(metadata.get("source_url", "")),
-            score=float(hit.get("rrf_score", hit.get("score", 0.0))),
+            score=float(hit.get("rerank_score", hit.get("rrf_score", hit.get("score", 0.0)))),
             metadata=metadata,
         )

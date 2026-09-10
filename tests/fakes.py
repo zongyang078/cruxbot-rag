@@ -12,14 +12,23 @@ from typing import Any
 
 
 class FakeEmbedder:
-    """Records what it was asked to embed; returns a fixed vector."""
+    """Records what it was asked to embed; returns a fixed vector.
+
+    Single and batch encoding are recorded separately so a test can assert
+    that indexing takes the batch path.
+    """
 
     def __init__(self) -> None:
         self.seen: list[str] = []
+        self.batch_calls = 0
 
     def encode(self, text: str) -> Sequence[float]:
         self.seen.append(text)
         return [0.0, 1.0, 0.0]
+
+    def encode_batch(self, texts: Sequence[str]) -> list[Sequence[float]]:
+        self.batch_calls += 1
+        return [[0.0, 1.0, 0.0] for _ in texts]
 
 
 class FakeStore:
@@ -48,6 +57,75 @@ class FakeStore:
         self.get_calls.append(list(chunk_ids))
         wanted = set(chunk_ids)
         return {doc["chunk_id"]: doc for doc in self.documents if doc["chunk_id"] in wanted}
+
+
+class FakeReranker:
+    """Scores texts from a lookup table; unknown texts score 0.
+
+    Records call count and how many texts it saw, so a test can assert that
+    the whole candidate pool was scored in a single batch rather than the
+    final top_k one at a time.
+    """
+
+    name = "fake-reranker"
+
+    def __init__(self, scores: dict[str, float]) -> None:
+        self.scores = scores
+        self.queries: list[str] = []
+        self.calls = 0
+        self.n_scored = 0
+
+    def score(self, query: str, texts: Sequence[str]) -> list[float]:
+        self.calls += 1
+        self.queries.append(query)
+        self.n_scored += len(texts)
+        return [self.scores.get(text, 0.0) for text in texts]
+
+
+class RecordingStore:
+    """A write-only vector store that keeps what was upserted.
+
+    Upsert semantics are modelled faithfully -- writing an id that already
+    exists replaces it -- so a test can distinguish overwriting from
+    duplicating when the same corpus is indexed twice.
+    """
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+        self.upsert_calls: list[list[str]] = []
+
+    @property
+    def upserted(self) -> list[dict[str, Any]]:
+        return list(self.rows.values())
+
+    def upsert(
+        self,
+        ids: Sequence[str],
+        texts: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+        metadatas: Sequence[dict[str, str]],
+    ) -> None:
+        self.upsert_calls.append(list(ids))
+        for chunk_id, text, embedding, metadata in zip(
+            ids, texts, embeddings, metadatas, strict=True
+        ):
+            self.rows[chunk_id] = {
+                "id": chunk_id,
+                "text": text,
+                "embedding": embedding,
+                "metadata": metadata,
+            }
+
+    def query(
+        self,
+        embedding: Sequence[float],
+        n_results: int,
+        content_types: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def get(self, chunk_ids: Sequence[str]) -> dict[str, dict[str, Any]]:
+        return {cid: self.rows[cid] for cid in chunk_ids if cid in self.rows}
 
 
 def make_doc(

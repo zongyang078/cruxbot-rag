@@ -2,10 +2,75 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from cruxbot import urls
+
+
+@dataclass(slots=True)
+class Document:
+    """One record in the unified corpus, or one chunk of it.
+
+    Chunks are Documents too: they carry the same fields plus `chunk_index`,
+    so a single type flows from ingestion through chunking into the index.
+    """
+
+    doc_id: str
+    text: str
+    content_type: str = ""
+    title: str = ""
+    source: str = ""
+    source_url: str = ""
+    grade: str = ""
+    location: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Set once the document has been split.
+    chunk_index: int | None = None
+    total_chunks: int | None = None
+    parent_doc_id: str = ""
+
+    @property
+    def chunk_id(self) -> str:
+        """Stable identifier for this chunk within the index.
+
+        Derived from the parent document id rather than assigned at write
+        time, so re-chunking a document that changed produces the same ids and
+        overwrites its previous chunks. Without this, every re-ingest would
+        append a fresh copy of the document alongside the stale one.
+        """
+        if self.chunk_index is None:
+            return self.doc_id
+        return f"{self.parent_doc_id or self.doc_id}_c{self.chunk_index}"
+
+    def as_chunk(self, text: str, index: int, total: int) -> Document:
+        """Return a copy of this document representing one of its chunks."""
+        return replace(
+            self,
+            text=text,
+            chunk_index=index,
+            total_chunks=total,
+            parent_doc_id=self.parent_doc_id or self.doc_id,
+        )
+
+    def index_metadata(self) -> dict[str, str]:
+        """Flatten to the string-valued metadata a vector store will accept.
+
+        Chroma rejects nested values, so nested `metadata` is dropped here
+        rather than at the call site. Empty fields are omitted so that a filter
+        on a missing key does not match the empty string.
+        """
+        fields = {
+            "content_type": self.content_type,
+            "title": self.title,
+            "source": self.source,
+            "source_url": self.source_url,
+            "grade": self.grade,
+            "location": self.location,
+            "parent_doc_id": self.parent_doc_id or self.doc_id,
+        }
+        return {key: str(value) for key, value in fields.items() if value}
 
 
 @dataclass(slots=True)

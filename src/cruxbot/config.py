@@ -35,8 +35,14 @@ class Settings:
     )
 
     # Models
+    # bge-small rather than bge-base: under a two-stage architecture the first
+    # stage is judged on Recall@50, not Precision@5, and the cross-encoder
+    # recovers the ordering. Measured on an M4, small indexes 384k chunks at
+    # 238/s against base's 91/s -- 27 minutes versus 67 -- for a difference the
+    # reranker is expected to absorb. The retrieval benchmark decides whether
+    # that expectation holds.
     embedding_model: str = field(
-        default_factory=lambda: os.getenv("CRUXBOT_EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
+        default_factory=lambda: os.getenv("CRUXBOT_EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     )
     reranker_model: str = field(
         default_factory=lambda: os.getenv("CRUXBOT_RERANKER_MODEL", "BAAI/bge-reranker-base")
