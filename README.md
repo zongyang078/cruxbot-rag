@@ -4,9 +4,10 @@ Hybrid-retrieval RAG over 338,433 rock climbing documents — routes, forum
 threads, accident reports, and gear reviews — with a retrieval evaluation
 harness that measures the retriever separately from the generator.
 
-> **Status: in progress.** The core retrieval logic, test suite, and CI are in
-> place. The reranker, labelled retrieval benchmark, and hosted demo are not yet
-> built. This README documents what exists; sections marked *(planned)* do not.
+> **Status: in progress.** Hybrid retrieval, the test suite (169 tests), and CI
+> are in place. The indexing pipeline, reranker, labelled retrieval benchmark,
+> and hosted demo are not yet built. This README documents what exists; sections
+> marked *(planned)* do not.
 
 ---
 
@@ -52,11 +53,24 @@ Hybrid retrieval
 
 ### Design notes
 
-**Why the pure core has no dependencies.** `grades`, `intent`, `fusion`,
-`urls`, and `prompts` import nothing outside the standard library. Retrieval
-correctness, grade conversion, and prompt construction are therefore testable
-in seconds without installing `torch` — which is why CI is fast enough to run
-on every push.
+**Why the core has no dependencies.** `grades`, `intent`, `fusion`, `urls`,
+`prompts`, and the BM25 index import nothing outside the standard library. The
+embedding model and vector store are injected behind Protocols, so hybrid
+retrieval is tested against in-memory doubles. The whole suite runs in under a
+second without installing `torch` — which is why CI can run on every push.
+
+**Why a hand-written BM25 instead of `rank_bm25`.** `rank_bm25.get_scores`
+scores every document in the corpus on every query: at 382k documents that is
+382k operations per query term, whether or not the term appears anywhere. An
+inverted index makes the cost proportional to the postings actually touched,
+which for a typical term is well under 1% of the corpus. It also removes a
+dependency and keeps the module testable in CI.
+
+**Why the sparse index stores no document text.** It holds term statistics
+only; text for a chunk found by BM25 alone is hydrated from the vector store in
+one batched lookup after fusion. The predecessor kept a parallel copy of all
+382k documents inside the index, which is most of why its on-disk cache was
+633 MB.
 
 **Why ChromaDB.** 382k vectors × 384 dims fits comfortably in memory on a
 single node, and Chroma needs no separate service to operate. This is a
@@ -75,16 +89,21 @@ evaluation can hold the retriever fixed and swap only the generator.
 
 ```
 src/cruxbot/
-├── grades.py       # grade normalization      (pure, no deps)
-├── intent.py       # query intent detection   (pure, no deps)
-├── fusion.py       # reciprocal rank fusion   (pure, no deps)
-├── urls.py         # citation quality checks  (pure, no deps)
-├── prompts.py      # prompt construction      (pure, no deps)
-├── types.py        # Chunk / Source / Answer
-├── config.py       # env-driven settings
-├── llm/            # provider Protocol + Ollama backend
-└── retrieval/      # dense, sparse, hybrid    (planned)
-tests/              # unit tests for every pure module
+├── grades.py           # grade normalization       (pure, no deps)
+├── intent.py           # query intent detection    (pure, no deps)
+├── fusion.py           # reciprocal rank fusion    (pure, no deps)
+├── urls.py             # citation quality checks   (pure, no deps)
+├── prompts.py          # prompt construction       (pure, no deps)
+├── types.py            # Chunk / Source / Answer
+├── config.py           # env-driven settings
+├── llm/
+│   ├── base.py         # LLMProvider Protocol
+│   └── ollama.py       # local backend
+└── retrieval/
+    ├── sparse.py       # BM25 inverted index       (pure, no deps)
+    ├── dense.py        # Embedder / VectorStore Protocols + Chroma backend
+    └── hybrid.py       # intent routing, fusion, hydration, backfill
+tests/                  # 169 tests; no torch, no network
 ```
 
 ---
