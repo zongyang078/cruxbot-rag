@@ -7,6 +7,7 @@ is what keeps the suite runnable on every push.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -57,6 +58,29 @@ class FakeStore:
         self.get_calls.append(list(chunk_ids))
         wanted = set(chunk_ids)
         return {doc["chunk_id"]: doc for doc in self.documents if doc["chunk_id"] in wanted}
+
+
+class FakeLLM:
+    """Returns a fixed completion and records the prompts it was given."""
+
+    name = "fake-llm"
+
+    def __init__(self, response: str = "an answer") -> None:
+        self.response = response
+        self.prompts: list[str] = []
+        self.stream_calls = 0
+
+    def complete(self, prompt: str, *, timeout: float = 120.0) -> str:
+        self.prompts.append(prompt)
+        return self.response
+
+    def stream(self, prompt: str, *, timeout: float = 120.0):
+        self.prompts.append(prompt)
+        self.stream_calls += 1
+        # Tokens keep their trailing whitespace, so joining them reproduces the
+        # response exactly -- a real provider's tokens do the same, and a fake
+        # that drops it would hide off-by-one spacing bugs in the caller.
+        yield from re.findall(r"\S+\s*", self.response) or [self.response]
 
 
 class FakeReranker:

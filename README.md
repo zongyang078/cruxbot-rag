@@ -38,9 +38,9 @@ This project takes the opposite position:
 ```
 Query
   │
-  ├─► intent.detect()          rule-based content-type prior
   ├─► grades.expand_query()    YDS ↔ French ↔ V ↔ Font normalization
-  │
+  │                            (intent.detect() exists but is off by
+  │                             default — measured as a regression)
   ▼
 Stage 1 — recall over 384k chunks
   ├─ dense   (bge-small-en-v1.5 + ChromaDB)  ─┐
@@ -223,13 +223,17 @@ measurement rather than an intuition.
 second of added latency. The two-stage split — recall over 384k, precision over
 50 — is doing exactly what it is supposed to.
 
-*Query intent detection does not earn its place.* Comparing the last two rows:
+*Query intent detection does not earn its place, and has been switched off.*
+Comparing the last two rows:
 no measurable quality difference (nDCG differs by 0.002, MRR by 0.019 — noise
 at 38 queries), a lower Recall@50, and a p95 latency 79% higher. The extra
 1.5 seconds buys nothing. Most of that cost is ChromaDB's metadata filter,
 which does not use the HNSW index. The predecessor project counted intent
 detection among the changes that improved its results; under an attributable
-measurement it is a regression, and it is being removed.
+measurement it is a regression. `use_intent` now defaults to `False`, which
+takes the default path off the metadata filter entirely: end-to-end retrieval
+measures p50 1192 ms / p95 1811 ms, against p95 3462 ms with the prior on. The
+module and its tests stay so the ablation row remains reproducible.
 
 **Limitations.** 38 scored queries is small — differences under roughly 0.05
 should not be read as real, which is why the intent comparison above is stated

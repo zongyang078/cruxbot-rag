@@ -29,9 +29,10 @@ jobs:
 
       # No torch, no chromadb: the retrieval and indexing modules are tested
       # through Protocols with in-memory doubles. The eval extra is light
-      # (anthropic, pydantic, dotenv) and the judge tests need its schema.
+      # (anthropic, pydantic, dotenv) and serve is fastapi + uvicorn; the judge and
+      # API tests need them.
       - name: Install
-        run: pip install -e ".[dev,eval]"
+        run: pip install -e ".[dev,eval,serve]"
 
       - name: Lint
         run: ruff check src tests

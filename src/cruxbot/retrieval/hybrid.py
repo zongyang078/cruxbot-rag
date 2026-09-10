@@ -73,7 +73,7 @@ class HybridRetriever:
         query: str,
         top_k: int = 5,
         candidate_k: int | None = None,
-        use_intent: bool = True,
+        use_intent: bool = False,
         content_types: Sequence[str] | None = None,
     ) -> RetrievalResult:
         """Retrieve the top_k chunks for a query.
@@ -84,8 +84,15 @@ class HybridRetriever:
             candidate_k: How many candidates to pull from each retriever before
                 fusion. Defaults to 10x top_k, bounded below at 20 -- fusion
                 can only promote a chunk that at least one retriever surfaced.
-            use_intent: Apply the rule-based content-type prior.
-            content_types: Explicit filter; overrides intent detection.
+            use_intent: Apply the rule-based content-type prior. Off by
+                default: measured against the labelled benchmark it produced no
+                quality difference (nDCG 0.665 vs 0.667, MRR 0.776 vs 0.757 --
+                noise at 38 queries), a lower Recall@50, and a p95 latency 79%
+                higher, most of it ChromaDB's metadata filter missing the HNSW
+                index. It stays available because the ablation needs it to
+                reproduce that row, not because it is recommended.
+            content_types: Explicit filter; applied whether or not `use_intent`
+                is set.
         """
         started = time.perf_counter()
         candidate_k = candidate_k or max(top_k * 10, 20)

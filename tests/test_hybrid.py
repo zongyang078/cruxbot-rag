@@ -14,24 +14,36 @@ def build(store: FakeStore, sparse: BM25Index | None = None, **kwargs) -> Hybrid
 
 
 class TestIntentRouting:
-    def test_detected_intent_narrows_content_types(self, store: FakeStore) -> None:
+    def test_is_off_by_default(self, store: FakeStore) -> None:
+        # Measured against the labelled benchmark, the intent prior produced no
+        # quality difference and a 79% higher p95 latency. It stays available
+        # so the ablation can reproduce that row, not because it is on.
         result = build(store).retrieve("Recommend a route in Yosemite")
+        assert result.intent is None
+        assert result.content_types is None
+
+    def test_detected_intent_narrows_content_types_when_enabled(self, store: FakeStore) -> None:
+        result = build(store).retrieve("Recommend a route in Yosemite", use_intent=True)
         assert result.intent == intent.ROUTE
         assert result.content_types == [intent.ROUTE]
 
     def test_ambiguous_query_applies_no_filter(self, store: FakeStore) -> None:
-        result = build(store).retrieve("hello there")
+        result = build(store).retrieve("hello there", use_intent=True)
         assert result.intent is None
         assert result.content_types is None
 
     def test_explicit_content_types_override_intent(self, store: FakeStore) -> None:
-        result = build(store).retrieve("Recommend a route in Yosemite", content_types=["article"])
+        result = build(store).retrieve(
+            "Recommend a route in Yosemite", use_intent=True, content_types=["article"]
+        )
         assert result.content_types == ["article"]
 
-    def test_intent_detection_can_be_disabled(self, store: FakeStore) -> None:
-        result = build(store).retrieve("Recommend a route in Yosemite", use_intent=False)
-        assert result.intent is None
-        assert result.content_types is None
+    def test_an_explicit_filter_applies_without_intent_detection(self, store: FakeStore) -> None:
+        # top_k=1 so the filter's own result stands; asking for more would
+        # trigger the backfill, which is a different behaviour tested below.
+        result = build(store).retrieve("anything", content_types=["article"], top_k=1)
+        assert result.content_types == ["article"]
+        assert [c.chunk_id for c in result.chunks] == ["a1"]
 
 
 class TestFusion:
@@ -94,12 +106,16 @@ class TestBackfill:
             [make_doc("a1", content_type="article")]
             + [make_doc(f"r{i}", content_type="route") for i in range(5)]
         )
-        result = build(store).retrieve("What causes rappelling accidents?", top_k=3)
+        result = build(store).retrieve(
+            "What causes rappelling accidents?", use_intent=True, top_k=3
+        )
         assert len(result.chunks) == 3
 
     def test_backfill_does_not_duplicate(self) -> None:
         store = FakeStore([make_doc("a1", content_type="article")])
-        result = build(store).retrieve("What causes rappelling accidents?", top_k=5)
+        result = build(store).retrieve(
+            "What causes rappelling accidents?", use_intent=True, top_k=5
+        )
         assert len({c.chunk_id for c in result.chunks}) == len(result.chunks)
 
     def test_no_backfill_when_unfiltered(self, store: FakeStore) -> None:
