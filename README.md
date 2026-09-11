@@ -7,7 +7,7 @@ threads, accident reports, and gear reviews — with a retrieval evaluation
 harness that measures the retriever separately from the generator.
 
 > **Status: in progress.** Two-stage retrieval, the indexing pipeline, the
-> labelled retrieval benchmark, and 350 tests under CI are all in place. The
+> labelled retrieval benchmark, and 387 tests under CI are all in place. The
 > remaining gaps are a hosted demo and answer-quality evaluation. This README
 > documents what exists; sections marked *(planned)* do not.
 
@@ -143,20 +143,38 @@ src/cruxbot/
 ├── prompts.py          # prompt construction       (pure, no deps)
 ├── types.py            # Chunk / Source / Answer
 ├── config.py           # env-driven settings
+├── pipeline.py         # retrieve -> prompt -> generate
+├── api.py              # FastAPI: /search, /answer (SSE), /health
 ├── llm/
 │   ├── base.py         # LLMProvider Protocol
-│   └── ollama.py       # local backend
+│   ├── ollama.py       # local backend
+│   └── anthropic.py    # hosted backend
 ├── indexing/
 │   ├── chunking.py     # per-content-type splitting (pure, no deps)
 │   ├── corpus.py       # streaming JSON / JSONL loader
 │   └── pipeline.py     # chunk -> embed -> upsert, full or incremental
-└── retrieval/
-    ├── sparse.py       # BM25 inverted index       (pure, no deps)
-    ├── dense.py        # Embedder / VectorStore Protocols + Chroma backend
-    ├── rerank.py       # cross-encoder second stage
-    └── hybrid.py       # intent routing, fusion, hydration, rerank
-scripts/               # CLI: index builds, eval set, ablation, demo subset
-tests/                  # 350 tests; no torch, no network
+├── retrieval/
+│   ├── sparse.py       # BM25 inverted index       (pure, no deps)
+│   ├── dense.py        # Embedder / VectorStore Protocols + Chroma backend
+│   ├── rerank.py       # cross-encoder second stage
+│   └── hybrid.py       # fusion, hydration, rerank, optional intent prior
+└── evaluation/
+    ├── metrics.py      # Recall / MRR / nDCG        (pure, no deps)
+    ├── dataset.py      # labelled queries, pooling  (pure, no deps)
+    ├── judge.py        # relevance grading via Claude
+    ├── configs.py      # the one definition of what gets compared
+    └── runner.py       # ablation runner + report
+
+scripts/
+├── ingest/             # corpus collection from the six original sources
+├── build_index.py      # full or incremental index builds
+├── build_demo_index.py # the shippable subset
+├── build_eval_set.py   # pool candidates and judge them
+├── evaluate_retrieval.py
+├── demo.py             # query the running service (stdlib only)
+└── fetch_demo_index.sh
+
+tests/                  # 387 tests; no torch, no network
 ```
 
 ---
@@ -324,9 +342,39 @@ replacement is mine.
 
 ---
 
-## License
+## Data and licensing
 
-MIT — see [LICENSE](LICENSE).
+The code in this repository is MIT — see [LICENSE](LICENSE). **The corpus is
+not.** It is assembled from six sources under different terms, and only two of
+them permit redistribution:
 
-Source data is used under the terms of each provider: OpenBeta (CC0), American
-Alpine Club (CC0), Kaggle datasets (per-author copyright), Reddit (API ToS).
+| Source | Documents | Terms |
+| ------ | --------: | ----- |
+| [OpenBeta](https://openbeta.io) | 85,898 | CC0 |
+| American Alpine Club publications | 27,828 | CC0 |
+| Mountain Project routes (via Kaggle) | 116,700 | Copyright, individual authors |
+| Mountain Project forums (via Kaggle) | 104,763 | Copyright, individual authors |
+| Reddit | 2,372 | Reddit API terms |
+| Trailspace gear reviews (via Kaggle) | 872 | Copyright, individual authors |
+
+**The full 338,433-document corpus is therefore not published.** It can be
+rebuilt from the original sources instead: see
+[`scripts/ingest/`](scripts/ingest/) for the collection and cleaning pipeline,
+and [`docs/DATA_COLLECTION_METHODS.md`](docs/DATA_COLLECTION_METHODS.md) for
+what each source contributes and how it was cleaned.
+
+**What the demo index contains.** The 40,000-chunk subset attached to the
+[demo-index-v1](../../releases/tag/demo-index-v1) release is a 10% sample of
+that corpus, published so this project can be run and inspected. It is offered
+as a research and portfolio artifact, not as a dataset for reuse:
+
+- Every chunk keeps its `source_url`, and both the API and `scripts/demo.py`
+  display it. The index points at the original pages rather than standing in
+  for them.
+- Passages are excerpts, truncated to retrieval-sized chunks. It is not a
+  reconstruction of any source site.
+- Authorship stays with the original contributors on Mountain Project, Reddit,
+  and Trailspace. Nothing here transfers it.
+
+If you contributed content that appears here and would rather it did not, open
+an issue and it will be removed from the published index.

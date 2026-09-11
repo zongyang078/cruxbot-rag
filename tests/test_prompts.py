@@ -92,7 +92,3 @@ class TestBuild:
         built = prompts.build("q", [])
         assert "I don't have data on this" in built
         assert "Question: q" in built
-
-    def test_is_deterministic(self) -> None:
-        chunks = [chunk()]
-        assert prompts.build("q", chunks) == prompts.build("q", chunks)

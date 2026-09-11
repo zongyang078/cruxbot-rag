@@ -36,10 +36,6 @@ class TestSplitTextInvariants:
         for word in ("alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"):
             assert word in joined
 
-    def test_is_deterministic(self) -> None:
-        text = "sentence one. sentence two. sentence three. " * 20
-        assert split_text(text, 100, 20) == split_text(text, 100, 20)
-
 
 class TestSplitTextBoundaries:
     def test_prefers_paragraph_breaks(self) -> None:

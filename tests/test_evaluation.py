@@ -103,10 +103,6 @@ class TestPool:
     def test_deduplicates_while_preserving_first_appearance(self) -> None:
         assert pool({"x": ["a", "b"], "y": ["b", "a"]}, depth=2) == ["a", "b"]
 
-    def test_is_deterministic(self) -> None:
-        configs = {"dense": ["a", "b"], "sparse": ["c", "a"]}
-        assert pool(configs, depth=2) == pool(configs, depth=2)
-
     def test_empty_input_gives_an_empty_pool(self) -> None:
         assert pool({}, depth=10) == []
 

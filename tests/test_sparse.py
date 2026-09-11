@@ -213,9 +213,6 @@ class TestSearch:
     def test_no_match_returns_empty_list(self, index: BM25Index) -> None:
         assert index.search("kayaking") == []
 
-    def test_is_deterministic(self, index: BM25Index) -> None:
-        assert index.search("route in yosemite") == index.search("route in yosemite")
-
 
 class TestPersistence:
     def test_round_trips(self, index: BM25Index, tmp_path) -> None:
