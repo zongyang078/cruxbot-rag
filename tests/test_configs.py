@@ -53,9 +53,7 @@ def intent_flags(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool | None]:
 
 
 class TestIntentIsExplicit:
-    def test_intent_configs_turn_the_prior_on(
-        self, intent_flags: dict[str, bool | None]
-    ) -> None:
+    def test_intent_configs_turn_the_prior_on(self, intent_flags: dict[str, bool | None]) -> None:
         assert intent_flags["hybrid+intent"] is True
         assert intent_flags["hybrid+intent+rerank"] is True
 
@@ -66,9 +64,7 @@ class TestIntentIsExplicit:
         assert intent_flags["hybrid+rerank"] is False
         assert intent_flags["dense"] is False
 
-    def test_no_config_relies_on_the_default(
-        self, intent_flags: dict[str, bool | None]
-    ) -> None:
+    def test_no_config_relies_on_the_default(self, intent_flags: dict[str, bool | None]) -> None:
         # The regression this file exists for: `use_intent` defaulted to False
         # when intent was turned off in production, which silently made
         # hybrid+intent a copy of hybrid.

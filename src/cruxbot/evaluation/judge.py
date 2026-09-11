@@ -223,9 +223,7 @@ def agreement(
 
     exact = sum(1 for k in shared if judged[k] == human[k])
     within = sum(1 for k in shared if abs(judged[k] - human[k]) <= 1)
-    binary = sum(
-        1 for k in shared if (judged[k] >= min_grade) == (human[k] >= min_grade)
-    )
+    binary = sum(1 for k in shared if (judged[k] >= min_grade) == (human[k] >= min_grade))
 
     return Agreement(
         n=len(shared),

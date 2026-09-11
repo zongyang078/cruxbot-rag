@@ -118,9 +118,7 @@ def run_config(
                 retrieved=retrieved,
                 # A failed query scores zero rather than being dropped, so a
                 # configuration cannot raise its average by erroring out.
-                scores=evaluate_query(
-                    retrieved, query.relevance, ks=ks, min_grade=min_grade
-                ),
+                scores=evaluate_query(retrieved, query.relevance, ks=ks, min_grade=min_grade),
                 latency_ms=latency_ms,
                 error=error,
             )
@@ -152,9 +150,7 @@ def run_all(
     min_grade: float = DEFAULT_MIN_GRADE,
 ) -> list[ConfigReport]:
     """Evaluate every configuration over the same query set."""
-    return [
-        run_config(config, queries, ks=ks, min_grade=min_grade) for config in configs
-    ]
+    return [run_config(config, queries, ks=ks, min_grade=min_grade) for config in configs]
 
 
 def format_table(
