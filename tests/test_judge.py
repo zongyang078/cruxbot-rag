@@ -114,9 +114,21 @@ class TestAgreement:
 
     def test_binary_agreement_is_what_recall_depends_on(self) -> None:
         # Judge says relevant, human says not: this one does matter.
-        result = agreement({"a": 1.0}, {"a": 0.0})
+        result = agreement({"a": 2.0}, {"a": 1.0})
         assert result.within_one == 1.0
         assert result.binary == 0.0
+
+    def test_binary_collapses_at_the_threshold_the_metrics_use(self) -> None:
+        # Grade 1 is "on topic but does not address the question" -- Recall
+        # counts it as a miss, so binary agreement must too. Collapsing at
+        # `> 0` instead would score the 0-versus-1 boundary, which is both
+        # easier and irrelevant to any reported number.
+        assert agreement({"a": 1.0}, {"a": 0.0}).binary == 1.0
+        assert agreement({"a": 2.0}, {"a": 3.0}).binary == 1.0
+        assert agreement({"a": 1.0}, {"a": 2.0}).binary == 0.0
+
+    def test_binary_threshold_is_overridable(self) -> None:
+        assert agreement({"a": 1.0}, {"a": 0.0}, min_grade=1.0).binary == 0.0
 
     def test_only_shared_passages_are_compared(self) -> None:
         result = agreement({"a": 3.0, "b": 1.0}, {"a": 3.0})

@@ -85,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
 
     configs = build_configs(args)
     print(f"\nEvaluating {len(configs)} configurations ...")
-    reports = run_all(configs, queries, ks=(5, 10, 50))
+    reports = run_all(configs, queries, ks=(5, 10, 50), min_grade=args.min_grade)
 
     print()
     print(format_table(reports))

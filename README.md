@@ -110,9 +110,16 @@ is judged on Recall@50 — did the right chunk reach the candidate pool at all �
 not on ranking it first, which is the cross-encoder's job. That weakens the case
 for a larger bi-encoder considerably. Measured on an M4, `bge-small` indexes
 384k chunks at 238/s against `bge-base`'s 91/s: 27 minutes versus 67, and a
-smaller index. Whether the reranker actually absorbs the quality difference is a
-question for the benchmark, not for taste — the comparison is one row of the
-table below.
+smaller index.
+
+**`bge-base` has not been run, so this remains a bet rather than a finding.**
+Adding it as a seventh configuration would mean rebuilding the pool and
+re-judging every label, which would in turn invalidate the human validation
+below — a considerably larger job than the 67 minutes of indexing suggests. The
+indirect evidence is in the threshold sweep: the reranker's Recall@10 gain grows
+from +0.07 to +0.39 as the relevance bar rises, which is the second stage doing
+exactly the precision work the choice assumed it would. That supports the bet
+without settling it.
 
 **Why two LLM backends.** A self-hosted Llama 3 costs nothing per query and
 sends nothing to a third party, which is right for bulk evaluation and for

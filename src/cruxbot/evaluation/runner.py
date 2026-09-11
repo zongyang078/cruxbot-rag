@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cruxbot.evaluation.dataset import LabeledQuery, usable
-from cruxbot.evaluation.metrics import aggregate, evaluate_query
+from cruxbot.evaluation.metrics import DEFAULT_MIN_GRADE, aggregate, evaluate_query
 
 
 @dataclass(slots=True)
@@ -85,14 +85,20 @@ def run_config(
     queries: Sequence[LabeledQuery],
     ks: Sequence[int] = (5, 10, 50),
     top_k: int | None = None,
+    min_grade: float = DEFAULT_MIN_GRADE,
 ) -> ConfigReport:
     """Evaluate one configuration over every usable query.
 
     `top_k` defaults to the largest cutoff being measured: retrieving fewer
     results than a metric's k would report a recall ceiling imposed by the
     harness rather than by the retriever.
+
+    `min_grade` sets the relevance bar for both steps, and has to: it selects
+    which queries can discriminate at all, and it thresholds the labels the
+    binary metrics are computed from. Passing it to one and not the other keeps
+    queries that are guaranteed zeros, or drops queries that are not.
     """
-    scored = [q for q in usable(queries)]
+    scored = list(usable(queries, min_grade))
     depth = top_k or max(ks)
 
     results: list[QueryResult] = []
@@ -112,7 +118,9 @@ def run_config(
                 retrieved=retrieved,
                 # A failed query scores zero rather than being dropped, so a
                 # configuration cannot raise its average by erroring out.
-                scores=evaluate_query(retrieved, query.relevance, ks=ks),
+                scores=evaluate_query(
+                    retrieved, query.relevance, ks=ks, min_grade=min_grade
+                ),
                 latency_ms=latency_ms,
                 error=error,
             )
@@ -141,9 +149,12 @@ def run_all(
     configs: Sequence[RetrievalConfig],
     queries: Sequence[LabeledQuery],
     ks: Sequence[int] = (5, 10, 50),
+    min_grade: float = DEFAULT_MIN_GRADE,
 ) -> list[ConfigReport]:
     """Evaluate every configuration over the same query set."""
-    return [run_config(config, queries, ks=ks) for config in configs]
+    return [
+        run_config(config, queries, ks=ks, min_grade=min_grade) for config in configs
+    ]
 
 
 def format_table(

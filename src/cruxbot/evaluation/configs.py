@@ -75,7 +75,15 @@ def build_all(
         ConfigSpec(
             "hybrid+intent",
             "adds the rule-based content-type prior",
-            lambda _: lambda q, k: _ids(HybridRetriever(dense, bm25).retrieve(q, top_k=k)),
+            # `use_intent` is passed explicitly, never left to the default. The
+            # default is False -- intent is off in production -- so a spec that
+            # omitted it would silently become a duplicate of `hybrid` and the
+            # ablation row would report the prior's effect as zero.
+            lambda _: (
+                lambda q, k: _ids(
+                    HybridRetriever(dense, bm25).retrieve(q, top_k=k, use_intent=True)
+                )
+            ),
         ),
     ]
 
@@ -99,7 +107,7 @@ def build_all(
                     lambda q, k: _ids(
                         HybridRetriever(
                             dense, bm25, reranker=reranker, rerank_pool=rerank_pool
-                        ).retrieve(q, top_k=k)
+                        ).retrieve(q, top_k=k, use_intent=True)
                     )
                 ),
             ),

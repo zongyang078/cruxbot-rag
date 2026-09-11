@@ -31,6 +31,8 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field
 
+from cruxbot.evaluation.metrics import DEFAULT_MIN_GRADE
+
 # Grades are ordinal, and the wording carries the work. A judge given only
 # "relevant" or "irrelevant" collapses "mentions the topic" into "answers the
 # question" -- which is the distinction nDCG exists to reward.
@@ -195,7 +197,11 @@ class Agreement:
     human_mean: float
 
 
-def agreement(judged: Mapping[str, float], human: Mapping[str, float]) -> Agreement:
+def agreement(
+    judged: Mapping[str, float],
+    human: Mapping[str, float],
+    min_grade: float = DEFAULT_MIN_GRADE,
+) -> Agreement:
     """Compare judged grades against human grades on the same passages.
 
     Three levels, because they answer different questions. Exact agreement is
@@ -203,6 +209,13 @@ def agreement(judged: Mapping[str, float], human: Mapping[str, float]) -> Agreem
     versus 3 constantly. Within-one tolerates that. `binary` collapses to
     relevant-or-not, which is what Recall actually depends on, and is therefore
     the figure that matters most for these metrics.
+
+    `min_grade` must be the threshold the metrics use, or `binary` answers a
+    question nobody asked. It previously collapsed at `> 0`, which scores the
+    boundary between "off topic" and "on topic" -- easy, and not the one Recall
+    draws. Recall's boundary is grade 1 versus 2, "on topic" versus "actually
+    answers", which is where graders genuinely disagree; measuring the easy
+    boundary instead reported a flatteringly high number.
     """
     shared = sorted(set(judged) & set(human))
     if not shared:
@@ -210,7 +223,9 @@ def agreement(judged: Mapping[str, float], human: Mapping[str, float]) -> Agreem
 
     exact = sum(1 for k in shared if judged[k] == human[k])
     within = sum(1 for k in shared if abs(judged[k] - human[k]) <= 1)
-    binary = sum(1 for k in shared if (judged[k] > 0) == (human[k] > 0))
+    binary = sum(
+        1 for k in shared if (judged[k] >= min_grade) == (human[k] >= min_grade)
+    )
 
     return Agreement(
         n=len(shared),

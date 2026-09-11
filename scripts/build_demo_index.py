@@ -41,7 +41,7 @@ BATCH = 2000
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--source-path", type=Path, default=settings.chroma_path)
-    parser.add_argument("--source-collection", default="cruxbot_small")
+    parser.add_argument("--source-collection", default=settings.collection)
     parser.add_argument("--out", type=Path, default=Path("data/demo"))
     parser.add_argument("--size", type=int, default=40_000, help="Target chunk count")
     parser.add_argument("--labels", type=Path, default=Path("benchmarks/labeled.jsonl"))
